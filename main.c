@@ -2,36 +2,7 @@
 /**
   ******************************************************************************
   * @file           : main.c
-<<<<<<< HEAD
-  * @brief          : Code Test 2 Động Cơ (Motor A & Motor B)
-  ******************************************************************************
-  */
-/* USER CODE END Header */
-
-/* Includes ------------------------------------------------------------------*/
-#include "main.h"
-
-/* Private variables ---------------------------------------------------------*/
-TIM_HandleTypeDef htim2;
-TIM_HandleTypeDef htim3;
-UART_HandleTypeDef huart1;
-
-/* Private function prototypes -----------------------------------------------*/
-void SystemClock_Config(void);
-static void MX_GPIO_Init(void);
-static void MX_TIM2_Init(void);
-=======
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2026 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
+  * @brief          : Full Code Xe Tự Cân Bằng (PID + MPU6050 + Bluetooth) - Đã fix chiều Motor & Hướng ngã
   ******************************************************************************
   */
 /* USER CODE END Header */
@@ -69,7 +40,25 @@ TIM_HandleTypeDef htim3;
 UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
+// ==================== CẤU HÌNH MPU6050 ====================
+#define MPU6050_ADDR 0xD0
+const double dt = 0.01; // Thời gian lấy mẫu 10ms (phụ thuộc vào ngắt TIM3)
+float acc_angle = 0, gyro_rate = 0;
+float current_angle = 0; // Góc nghiêng hiện tại của xe
 
+// ==================== CẤU HÌNH PID ====================
+// CHÚ Ý: ĐÂY CHỈ LÀ THÔNG SỐ MẪU, BẠN PHẢI TỰ DÒ (TUNING) TRÊN XE CỦA MÌNH!
+float Kp = 35.0;
+float Ki = 0.5;
+float Kd = 1.2;
+
+float target_angle = 0.0; // Điểm cân bằng lý tưởng (xe đứng thẳng)
+float error = 0, prev_error = 0;
+float P_out = 0, I_out = 0, D_out = 0, PID_Output = 0;
+
+// ==================== BLUETOOTH ====================
+char bt_buffer[100];
+uint8_t data_ready_to_send = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -80,28 +69,16 @@ static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
-
+void MPU6050_Init(void);
+void MPU6050_Read_Angle(void);
+void Set_Motor_Left(int speed);
+void Set_Motor_Right(int speed);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-int16_t Accel_X_RAW, Accel_Y_RAW, Accel_Z_RAW;
-int16_t Gyro_X_RAW, Gyro_Y_RAW, Gyro_Z_RAW;
 
-uint8_t raw_data[14];
-const uint8_t MPU6050_ADDR = 0xD0; // Địa chỉ I2C của MPU6050 (0x68 dịch trái 1 bit)
-
-float Goc_Accel_X;     // Góc tính từ Gia tốc kế
-float Goc_Accel_Y;
-float Toc_do_Goc_X;    // Tốc độ ngã đo từ Gyroscope (Độ/giây)
-float Toc_do_Goc_Y;
-float Goc_Thuc_Te_X;   // Góc cuối cùng sau khi đã lọc nhiễu
-float Goc_Thuc_Te_Y;
-float dt = 0.01;       // Thời gian trôi qua mỗi vòng lặp: 10ms = 0.01 giây
-
-char tx_buffer[100]; // Buffer chứa chuỗi dữ liệu để gửi qua Bluetooth
 /* USER CODE END 0 */
->>>>>>> c6af451092cce8e9f58ec1a248cfd11050ea4873
 
 /**
   * @brief  The application entry point.
@@ -109,41 +86,6 @@ char tx_buffer[100]; // Buffer chứa chuỗi dữ liệu để gửi qua Blueto
   */
 int main(void)
 {
-<<<<<<< HEAD
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-  HAL_Init();
-
-  /* Configure the system clock */
-  SystemClock_Config();
-
-  /* Initialize all configured peripherals */
-  MX_GPIO_Init();
-  MX_TIM2_Init();
-
-  /* USER CODE BEGIN 2 */
-  // 1. Kích hoạt bộ tạo xung PWM cho cả 2 kênh
-  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1); // Bánh trái (PA0)
-  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2); // Bánh phải (PA1)
-
-  // 2. Thiết lập chiều quay cho BÁNH TRÁI (Motor A)
-  HAL_GPIO_WritePin(GPIOA, DIR_A1_Pin, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(GPIOA, DIR_A2_Pin, GPIO_PIN_RESET);
-
-  // 3. Thiết lập chiều quay cho BÁNH PHẢI (Motor B)
-  HAL_GPIO_WritePin(GPIOA, DIR_B1_Pin, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(GPIOA, DIR_B2_Pin, GPIO_PIN_RESET);
-
-  // 4. Cấp tốc độ băm xung PWM (Dải giá trị từ 0 đến 100 vì Period = 99)
-  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 30); // Tốc độ 30%
-  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 30); // Tốc độ 30%
-  /* USER CODE END 2 */
-
-  /* Infinite loop */
-  while (1)
-  {
-    // Để trống vòng lặp, phần cứng tự động băm xung PWM liên tục
-  }
-=======
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
@@ -170,12 +112,17 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM3_Init();
   MX_USART1_UART_Init();
-
   /* USER CODE BEGIN 2 */
-  // MPU6050 mặc định ở chế độ Sleep. Gửi 0x00 vào thanh ghi 0x6B để đánh thức
-  uint8_t data = 0;
-  HAL_I2C_Mem_Write(&hi2c1, MPU6050_ADDR, 0x6B, 1, &data, 1, 1000);
-  HAL_Delay(50); // Chờ cảm biến ổn định
+  // 1. Bật PWM cho 2 động cơ
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
+
+  // 2. Khởi tạo cảm biến MPU6050
+  MPU6050_Init();
+  HAL_Delay(100); // Đợi cảm biến ổn định
+
+  // 3. Kích hoạt ngắt Timer 3 (Chu kỳ 10ms để chạy PID)
+  HAL_TIM_Base_Start_IT(&htim3);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -185,69 +132,29 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-
-    // 1. ĐỌC DỮ LIỆU THÔ TỪ CẢM BIẾN
-    HAL_I2C_Mem_Read(&hi2c1, MPU6050_ADDR, 0x3B, 1, raw_data, 14, 1000);
-
-    // 2. GỘP BYTE LẠI THÀNH SỐ NGUYÊN (RAW)
-    Accel_X_RAW = (int16_t)(raw_data[0] << 8 | raw_data[1]);
-    Accel_Y_RAW = (int16_t)(raw_data[2] << 8 | raw_data[3]);
-    Accel_Z_RAW = (int16_t)(raw_data[4] << 8 | raw_data[5]);
-    // (Bỏ qua byte 6, 7 vì là nhiệt độ)
-    Gyro_X_RAW = (int16_t)(raw_data[8] << 8 | raw_data[9]);
-    Gyro_Y_RAW = (int16_t)(raw_data[10] << 8 | raw_data[11]);
-    Gyro_Z_RAW = (int16_t)(raw_data[12] << 8 | raw_data[13]);
-
-    // 3. TÍNH TOÁN GÓC THỰC TẾ (BỘ LỌC BÙ)
-    Goc_Accel_Y = atan2(Accel_Y_RAW, Accel_Z_RAW) * 180.0 / 3.14159265;
-    Goc_Accel_X = atan2(Accel_X_RAW, Accel_Z_RAW) * 180.0 / 3.14159265;
-
-    Toc_do_Goc_X = Gyro_X_RAW / 131.0;
-    Toc_do_Goc_Y = Gyro_Y_RAW / 131.0;
-
-    Goc_Thuc_Te_Y = 0.98 * (Goc_Thuc_Te_Y + Toc_do_Goc_X * dt) + 0.02 * Goc_Accel_Y;
-    Goc_Thuc_Te_X = 0.98 * (Goc_Thuc_Te_X + Toc_do_Goc_Y * dt) + 0.02 * Goc_Accel_X;
-
-    // 4. XUẤT DỮ LIỆU QUA BLUETOOTH (UART1)
-    // Đóng gói 2 biến float vào mảng chuỗi tx_buffer
-    sprintf(tx_buffer, "X: %.2f | Y: %.2f\r\n", Goc_Thuc_Te_X, Goc_Thuc_Te_Y);
-
-    // Truyền dữ liệu qua chân PA9 (USART1_TX) tới module Bluetooth
-    HAL_UART_Transmit(&huart1, (uint8_t*)tx_buffer, strlen(tx_buffer), 100);
-
-    // Delay để giữ đúng nhịp 100Hz (10ms)
-    HAL_Delay(10);
+    // Đẩy dữ liệu ra Bluetooth ở vòng lặp chính để không làm chậm ngắt PID
+    if (data_ready_to_send) {
+        sprintf(bt_buffer, "Goc: %.2f | PID_PWM: %d\r\n", current_angle, (int)PID_Output);
+        HAL_UART_Transmit(&huart1, (uint8_t*)bt_buffer, strlen(bt_buffer), 20);
+        data_ready_to_send = 0;
+        HAL_Delay(50); // Tránh gửi quá nhanh gây nghẽn Bluetooth
+    }
   }
   /* USER CODE END 3 */
->>>>>>> c6af451092cce8e9f58ec1a248cfd11050ea4873
 }
 
 /**
   * @brief System Clock Configuration
-<<<<<<< HEAD
-=======
   * @retval None
->>>>>>> c6af451092cce8e9f58ec1a248cfd11050ea4873
   */
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
-<<<<<<< HEAD
   __HAL_RCC_PWR_CLK_ENABLE();
   __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE2);
 
-=======
-  /** Configure the main internal regulator output voltage
-  */
-  __HAL_RCC_PWR_CLK_ENABLE();
-  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE2);
-
-  /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
->>>>>>> c6af451092cce8e9f58ec1a248cfd11050ea4873
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
@@ -261,11 +168,6 @@ void SystemClock_Config(void)
     Error_Handler();
   }
 
-<<<<<<< HEAD
-=======
-  /** Initializes the CPU, AHB and APB buses clocks
-  */
->>>>>>> c6af451092cce8e9f58ec1a248cfd11050ea4873
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
@@ -280,9 +182,6 @@ void SystemClock_Config(void)
 }
 
 /**
-<<<<<<< HEAD
-  * @brief TIM2 Initialization Function
-=======
   * @brief I2C1 Initialization Function
   * @param None
   * @retval None
@@ -308,7 +207,6 @@ static void MX_I2C1_Init(void)
   * @brief TIM2 Initialization Function
   * @param None
   * @retval None
->>>>>>> c6af451092cce8e9f58ec1a248cfd11050ea4873
   */
 static void MX_TIM2_Init(void)
 {
@@ -357,9 +255,6 @@ static void MX_TIM2_Init(void)
 }
 
 /**
-<<<<<<< HEAD
-  * @brief GPIO Initialization Function
-=======
   * @brief TIM3 Initialization Function
   * @param None
   * @retval None
@@ -417,7 +312,6 @@ static void MX_USART1_UART_Init(void)
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
->>>>>>> c6af451092cce8e9f58ec1a248cfd11050ea4873
   */
 static void MX_GPIO_Init(void)
 {
@@ -426,28 +320,17 @@ static void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
-<<<<<<< HEAD
-  __HAL_RCC_GPIOB_CLK_ENABLE(); // Vẫn bật clock cho GPIOB dự phòng
-
-  /* Cấu hình mặc định mức Thấp (RESET) cho các chân điều hướng */
-  HAL_GPIO_WritePin(GPIOA, DIR_A1_Pin|DIR_A2_Pin|DIR_B1_Pin|DIR_B2_Pin, GPIO_PIN_RESET);
-
-  /* Cấu hình chế độ Output cho các chân điều hướng */
-=======
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, DIR_A1_Pin|DIR_A2_Pin|DIR_B1_Pin|DIR_B2_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : DIR_A1_Pin DIR_A2_Pin DIR_B1_Pin DIR_B2_Pin */
->>>>>>> c6af451092cce8e9f58ec1a248cfd11050ea4873
   GPIO_InitStruct.Pin = DIR_A1_Pin|DIR_A2_Pin|DIR_B1_Pin|DIR_B2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-<<<<<<< HEAD
-=======
 
   /*Configure GPIO pins : ENC_L_A_Pin ENC_R_A_Pin */
   GPIO_InitStruct.Pin = ENC_L_A_Pin|ENC_R_A_Pin;
@@ -464,15 +347,130 @@ static void MX_GPIO_Init(void)
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
->>>>>>> c6af451092cce8e9f58ec1a248cfd11050ea4873
 }
+
+/* USER CODE BEGIN 4 */
+
+// =========================================================
+// 1. HÀM KHỞI TẠO MPU6050
+// =========================================================
+void MPU6050_Init(void) {
+    uint8_t check;
+    uint8_t Data;
+
+    HAL_I2C_Mem_Read(&hi2c1, MPU6050_ADDR, 0x75, 1, &check, 1, 1000);
+    if (check == 104) {
+        Data = 0;
+        HAL_I2C_Mem_Write(&hi2c1, MPU6050_ADDR, 0x6B, 1, &Data, 1, 1000);
+        Data = 0x07;
+        HAL_I2C_Mem_Write(&hi2c1, MPU6050_ADDR, 0x19, 1, &Data, 1, 1000);
+        Data = 0x08;
+        HAL_I2C_Mem_Write(&hi2c1, MPU6050_ADDR, 0x1B, 1, &Data, 1, 1000);
+        Data = 0x00;
+        HAL_I2C_Mem_Write(&hi2c1, MPU6050_ADDR, 0x1C, 1, &Data, 1, 1000);
+    }
+}
+
+// =========================================================
+// 2. HÀM ĐỌC VÀ LỌC GÓC MPU6050 (BỘ LỌC BÙ)
+// =========================================================
+void MPU6050_Read_Angle(void) {
+    uint8_t Rec_Data[14];
+    int16_t Accel_Y, Accel_Z, Gyro_X;
+
+    HAL_I2C_Mem_Read(&hi2c1, MPU6050_ADDR, 0x3B, 1, Rec_Data, 14, 1000);
+
+    Accel_Y = (int16_t)(Rec_Data[2] << 8 | Rec_Data[3]);
+    Accel_Z = (int16_t)(Rec_Data[4] << 8 | Rec_Data[5]);
+    Gyro_X = (int16_t)(Rec_Data[8] << 8 | Rec_Data[9]);
+
+    acc_angle = atan2(Accel_Y, Accel_Z) * 180 / 3.141592654;
+    gyro_rate = Gyro_X / 65.5;
+
+    current_angle = 0.98 * (current_angle + gyro_rate * dt) + 0.02 * acc_angle;
+}
+
+// =========================================================
+// 3. ĐIỀU KHIỂN ĐỘNG CƠ
+// =========================================================
+void Set_Motor_Left(int speed) {
+    if (speed > 100) speed = 100;
+    if (speed < -100) speed = -100;
+
+    if (speed >= 0) {
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+        __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, speed);
+    } else {
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
+        __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, -speed);
+    }
+}
+
+void Set_Motor_Right(int speed) {
+    if (speed > 100) speed = 100;
+    if (speed < -100) speed = -100;
+
+    if (speed >= 0) {
+        // ĐÃ ĐẢO CHIỀU CỰC MOTOR (Đồng bộ chiều 2 bánh)
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
+        __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, speed);
+    } else {
+        // ĐÃ ĐẢO CHIỀU CỰC MOTOR (Đồng bộ chiều 2 bánh)
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_RESET);
+        __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, -speed);
+    }
+}
+
+// =========================================================
+// 4. NGẮT TIMER CHẠY PID (Chu kỳ 10ms)
+// =========================================================
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+    if (htim->Instance == TIM3)
+    {
+        // 1. Đọc góc nghiêng
+        MPU6050_Read_Angle();
+
+        // 2. Tính toán PID
+        error = current_angle - target_angle;
+
+        P_out = Kp * error;
+        I_out += Ki * error * dt;
+        D_out = Kd * (error - prev_error) / dt;
+
+        PID_Output = P_out + I_out + D_out;
+        prev_error = error;
+
+        // Anti-windup (Tránh tích lũy lỗi quá lớn ở khâu I)
+        if(I_out > 100) I_out = 100;
+        if(I_out < -100) I_out = -100;
+
+        // An toàn: Ngã quá 45 độ thì ngắt động cơ
+        if (current_angle > 45 || current_angle < -45) {
+            PID_Output = 0;
+            I_out = 0;
+        }
+
+        // =========================================================
+        // 3. XUẤT PWM RA ĐỘNG CƠ
+        // Đã thêm dấu "-" để xe đuổi theo đúng hướng ngã
+        // =========================================================
+        Set_Motor_Left(-(int)PID_Output);
+        Set_Motor_Right(-(int)PID_Output);
+
+        // Báo cờ để gửi Bluetooth
+        data_ready_to_send = 1;
+    }
+}
+/* USER CODE END 4 */
 
 /**
   * @brief  This function is executed in case of error occurrence.
-<<<<<<< HEAD
-=======
   * @retval None
->>>>>>> c6af451092cce8e9f58ec1a248cfd11050ea4873
   */
 void Error_Handler(void)
 {
