@@ -1,4 +1,3 @@
-// test bracnh
 /* USER CODE BEGIN Header */
 /**
   ******************************************************************************
@@ -22,7 +21,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <math.h>
+#include <stdio.h>
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -45,9 +46,39 @@ I2C_HandleTypeDef hi2c1;
 
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
+TIM_HandleTypeDef htim4;
+TIM_HandleTypeDef htim10;
+
+UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
+#define MPU6050_ADDR 0xD0
+const double dt = 0.01; // Thời gian lấy mẫu 10ms
+float acc_angle = 0, gyro_rate = 0;
+float current_angle = 0;
 
+// ==================== CẤU HÌNH PID GÓC (VÒNG TRONG) ====================
+float Kp = 35.0;
+float Ki = 0.5;
+float Kd = 1.2;
+
+float target_angle = 0.0; // Sẽ được cập nhật liên tục bởi Vòng Tốc Độ
+float error = 0, prev_error = 0;
+float P_out = 0, I_out = 0, D_out = 0, Angle_Output = 0;
+
+// ==================== CẤU HÌNH PID TỐC ĐỘ (VÒNG NGOÀI) ====================
+float Speed_Kp = 0.008;
+float Speed_Ki = 0.002;
+
+float target_speed = 0.0; // 0 = Giữ xe đứng im tại chỗ
+float current_speed = 0;
+float speed_error = 0;
+float Speed_P_out = 0, Speed_I_out = 0, Speed_Output = 0;
+float max_tilt_angle = 8.0; // Giới hạn góc nghiêng bù tối đa (độ)
+
+// ==================== BLUETOOTH & ENCODER ====================
+char bt_buffer[100];
+uint8_t data_ready_to_send = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -56,13 +87,77 @@ static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_USART1_UART_Init(void);
+static void MX_TIM4_Init(void);
+static void MX_TIM10_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void MPU6050_Init(void) {
+    uint8_t check;
+    uint8_t Data;
 
+    HAL_I2C_Mem_Read(&hi2c1, MPU6050_ADDR, 0x75, 1, &check, 1, 1000);
+    if (check == 104) {
+        Data = 0;
+        HAL_I2C_Mem_Write(&hi2c1, MPU6050_ADDR, 0x6B, 1, &Data, 1, 1000);
+        Data = 0x07;
+        HAL_I2C_Mem_Write(&hi2c1, MPU6050_ADDR, 0x19, 1, &Data, 1, 1000);
+        Data = 0x08;
+        HAL_I2C_Mem_Write(&hi2c1, MPU6050_ADDR, 0x1B, 1, &Data, 1, 1000);
+        Data = 0x00;
+        HAL_I2C_Mem_Write(&hi2c1, MPU6050_ADDR, 0x1C, 1, &Data, 1, 1000);
+    }
+}
+
+void MPU6050_Read_Angle(void) {
+    uint8_t Rec_Data[14];
+    int16_t Accel_Y, Accel_Z, Gyro_X;
+
+    HAL_I2C_Mem_Read(&hi2c1, MPU6050_ADDR, 0x3B, 1, Rec_Data, 14, 1000);
+
+    Accel_Y = (int16_t)(Rec_Data[2] << 8 | Rec_Data[3]);
+    Accel_Z = (int16_t)(Rec_Data[4] << 8 | Rec_Data[5]);
+    Gyro_X = (int16_t)(Rec_Data[8] << 8 | Rec_Data[9]);
+
+    acc_angle = atan2(Accel_Y, Accel_Z) * 180 / 3.141592654;
+    gyro_rate = Gyro_X / 65.5;
+
+    current_angle = 0.98 * (current_angle + gyro_rate * dt) + 0.02 * acc_angle;
+}
+
+void Set_Motor_Left(int speed) {
+    if (speed > 100) speed = 100;
+    if (speed < -100) speed = -100;
+
+    if (speed >= 0) {
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+        __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, speed);
+    } else {
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
+        __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, -speed);
+    }
+}
+
+void Set_Motor_Right(int speed) {
+    if (speed > 100) speed = 100;
+    if (speed < -100) speed = -100;
+
+    if (speed >= 0) {
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
+        __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, speed);
+    } else {
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_RESET);
+        __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, -speed);
+    }
+}
 /* USER CODE END 0 */
 
 /**
@@ -96,20 +191,44 @@ int main(void)
   MX_I2C1_Init();
   MX_TIM2_Init();
   MX_TIM3_Init();
+  MX_USART1_UART_Init();
+  MX_TIM4_Init();
+  MX_TIM10_Init();
   /* USER CODE BEGIN 2 */
+  // 1. Bật PWM cho 2 động cơ
+    HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+    HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
 
+    // 2. Khởi tạo cảm biến MPU6050
+    MPU6050_Init();
+    HAL_Delay(100);
+
+    // 3. Kích hoạt Hardware Encoder (TIM3 & TIM4)
+    HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);
+    HAL_TIM_Encoder_Start(&htim4, TIM_CHANNEL_ALL);
+
+    // 4. Kích hoạt ngắt Timer (Thay TIM3 cũ bằng TIM10 mới)
+    HAL_TIM_Base_Start_IT(&htim10);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
-  {
-    /* USER CODE END WHILE */
-	//thu commit
-    /* USER CODE BEGIN 3 */
-  }
-  /* USER CODE END 3 */
-}
+    while (1)
+      {
+        /* USER CODE END WHILE */
+
+        /* USER CODE BEGIN 3 */
+        if (data_ready_to_send) {
+            // Đã sửa PID_Output thành Angle_Output ở dòng dưới
+            sprintf(bt_buffer, "Goc: %.2f | PWM: %d | TocDo: %.0f\r\n", current_angle, (int)Angle_Output, current_speed);
+            HAL_UART_Transmit(&huart1, (uint8_t*)bt_buffer, strlen(bt_buffer), 20);
+            data_ready_to_send = 0;
+            HAL_Delay(50);
+        }
+      }
+      /* USER CODE END 3 */
+    }
+
 
 /**
   * @brief System Clock Configuration
@@ -265,24 +384,28 @@ static void MX_TIM3_Init(void)
 
   /* USER CODE END TIM3_Init 0 */
 
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_Encoder_InitTypeDef sConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
 
   /* USER CODE BEGIN TIM3_Init 1 */
 
   /* USER CODE END TIM3_Init 1 */
   htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 83;
+  htim3.Init.Prescaler = 0;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 9999;
+  htim3.Init.Period = 65535;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
+  sConfig.EncoderMode = TIM_ENCODERMODE_TI12;
+  sConfig.IC1Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC1Filter = 0;
+  sConfig.IC2Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC2Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC2Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC2Filter = 0;
+  if (HAL_TIM_Encoder_Init(&htim3, &sConfig) != HAL_OK)
   {
     Error_Handler();
   }
@@ -299,12 +422,126 @@ static void MX_TIM3_Init(void)
 }
 
 /**
+  * @brief TIM4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM4_Init(void)
+{
+
+  /* USER CODE BEGIN TIM4_Init 0 */
+
+  /* USER CODE END TIM4_Init 0 */
+
+  TIM_Encoder_InitTypeDef sConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 0;
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 65535;
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  sConfig.EncoderMode = TIM_ENCODERMODE_TI12;
+  sConfig.IC1Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC1Filter = 0;
+  sConfig.IC2Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC2Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC2Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC2Filter = 0;
+  if (HAL_TIM_Encoder_Init(&htim4, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM4_Init 2 */
+
+  /* USER CODE END TIM4_Init 2 */
+
+}
+
+/**
+  * @brief TIM10 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM10_Init(void)
+{
+
+  /* USER CODE BEGIN TIM10_Init 0 */
+
+  /* USER CODE END TIM10_Init 0 */
+
+  /* USER CODE BEGIN TIM10_Init 1 */
+
+  /* USER CODE END TIM10_Init 1 */
+  htim10.Instance = TIM10;
+  htim10.Init.Prescaler = 83;
+  htim10.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim10.Init.Period = 9999;
+  htim10.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim10.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim10) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM10_Init 2 */
+
+  /* USER CODE END TIM10_Init 2 */
+
+}
+
+/**
+  * @brief USART1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART1_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART1_Init 0 */
+
+  /* USER CODE END USART1_Init 0 */
+
+  /* USER CODE BEGIN USART1_Init 1 */
+
+  /* USER CODE END USART1_Init 1 */
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 9600;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART1_Init 2 */
+
+  /* USER CODE END USART1_Init 2 */
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
   */
 static void MX_GPIO_Init(void)
 {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
 /* USER CODE BEGIN MX_GPIO_Init_1 */
 /* USER CODE END MX_GPIO_Init_1 */
 
@@ -313,12 +550,89 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, DIR_A1_Pin|DIR_A2_Pin|DIR_B1_Pin|DIR_B2_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pins : DIR_A1_Pin DIR_A2_Pin DIR_B1_Pin DIR_B2_Pin */
+  GPIO_InitStruct.Pin = DIR_A1_Pin|DIR_A2_Pin|DIR_B1_Pin|DIR_B2_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
+// NGẮT TIMER CHẠY PID (Chu kỳ 10ms - Đổi sang TIM10)
+// =========================================================
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+    if (htim->Instance == TIM10)
+    {
+        // 1. ĐỌC CẢM BIẾN
+        MPU6050_Read_Angle();
 
+        int16_t encoder_left = (int16_t)__HAL_TIM_GET_COUNTER(&htim3);
+        int16_t encoder_right = (int16_t)__HAL_TIM_GET_COUNTER(&htim4);
+        __HAL_TIM_SET_COUNTER(&htim3, 0);
+        __HAL_TIM_SET_COUNTER(&htim4, 0);
+
+        // 2. LỌC NHIỄU NHẸ CHO VẬN TỐC (Tránh xe bị giật cục)
+        float raw_speed = (float)(encoder_left + encoder_right);
+        current_speed = (current_speed * 0.7) + (raw_speed * 0.3);
+
+        // =======================================================
+        // 3. VÒNG NGOÀI: PID TỐC ĐỘ (Tính ra góc nghiêng cần thiết)
+        // =======================================================
+        speed_error = target_speed - current_speed;
+
+        Speed_P_out = Speed_Kp * speed_error;
+        Speed_I_out += Speed_Ki * speed_error;
+
+        // Anti-windup cho Speed I
+        if(Speed_I_out > max_tilt_angle) Speed_I_out = max_tilt_angle;
+        if(Speed_I_out < -max_tilt_angle) Speed_I_out = -max_tilt_angle;
+
+        Speed_Output = Speed_P_out + Speed_I_out;
+
+        // Giới hạn góc nghiêng bù an toàn
+        if(Speed_Output > max_tilt_angle) Speed_Output = max_tilt_angle;
+        if(Speed_Output < -max_tilt_angle) Speed_Output = -max_tilt_angle;
+
+        // Cập nhật mục tiêu cho vòng Góc
+        // (Tùy thuộc vào chiều cắm Encoder, có thể phải đổi thành: target_angle = -Speed_Output;)
+        target_angle = Speed_Output;
+
+        // =======================================================
+        // 4. VÒNG TRONG: PID GÓC (Giữ nguyên thuật toán của bạn)
+        // =======================================================
+        error = current_angle - target_angle;
+
+        P_out = Kp * error;
+        I_out += Ki * error * dt;
+        D_out = Kd * (error - prev_error) / dt;
+
+        Angle_Output = P_out + I_out + D_out;
+        prev_error = error;
+
+        if(I_out > 100) I_out = 100;
+        if(I_out < -100) I_out = -100;
+
+        if (current_angle > 45 || current_angle < -45) {
+            Angle_Output = 0;
+            I_out = 0;
+            Speed_I_out = 0; // Reset cả I vòng ngoài khi xe ngã
+        }
+
+        // Xuất PWM
+        Set_Motor_Left(-(int)Angle_Output);
+        Set_Motor_Right(-(int)Angle_Output);
+
+        data_ready_to_send = 1;
+    }
+}
 /* USER CODE END 4 */
 
 /**
